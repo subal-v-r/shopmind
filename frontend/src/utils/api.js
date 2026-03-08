@@ -33,6 +33,7 @@ export const api = {
   getSegmentSentiment: (id) => request(`/sentiment/segment/${id}`),
 
   // Predictions
+  analyzeCustomer: (data) => request('/predictions/analyze', { method: 'POST', body: JSON.stringify(data) }),
   predictRevenue: (data) => request('/predictions/revenue', { method: 'POST', body: JSON.stringify(data) }),
   predictSubscription: (data) => request('/predictions/subscription', { method: 'POST', body: JSON.stringify(data) }),
   getFeatureImportance: () => request('/predictions/revenue/feature-importance'),

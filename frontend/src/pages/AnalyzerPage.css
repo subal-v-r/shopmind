@@ -358,3 +358,47 @@
     font-size: 0.76rem;
     color: var(--text-muted);
 }
+
+/* GenAI Explanation */
+.az-ai-card h4 {
+    flex-wrap: wrap;
+}
+
+.az-ai-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+}
+
+@media (max-width: 720px) {
+    .az-ai-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.az-ai-block {
+    padding: 0.85rem 1rem;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--accent);
+}
+
+.az-ai-block-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.78rem;
+}
+
+.az-ai-block-body {
+    font-size: 0.81rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* KPI row — 2-column variant for anomaly row */
+.az-kpi-row:has(.az-kpi:nth-child(2):last-child) {
+    grid-template-columns: repeat(2, 1fr);
+}

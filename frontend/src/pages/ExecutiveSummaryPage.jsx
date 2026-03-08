@@ -1,23 +1,23 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../utils/api';
 import { SEG_COLORS, fmtCurrency, safeNum } from '../utils/chartConfig';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import './ExecutiveSummaryPage.css';
 
 export default function ExecutiveSummaryPage() {
     const [segs, setSegs] = useState(null);
     const [sent, setSent] = useState(null);
-    const [metrics, setMetrics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
     const [exportMsg, setExportMsg] = useState(null);
     const contentRef = useRef(null);
 
     useEffect(() => {
-        Promise.all([api.getSegments(), api.getSentiment(), api.getModelMetrics(), api.getStrategies()])
-            .then(([s, se, m]) => {
+        Promise.all([api.getSegments(), api.getSentiment()])
+            .then(([s, se]) => {
                 setSegs(s.segments || []);
                 setSent(se);
-                setMetrics(m);
             })
             .finally(() => setLoading(false));
     }, []);
@@ -38,10 +38,6 @@ export default function ExecutiveSummaryPage() {
         {
             title: `Highest-Value Segment: ${topSeg?.label || '—'}`,
             body: `${safeNum(topSeg?.size).toLocaleString()} customers · $${safeNum(topSeg?.avg_spend).toFixed(2)} avg spend · ${safeNum(topSeg?.avg_rating).toFixed(2)} rating. Priority #1 for VIP retention.`,
-        },
-        {
-            title: 'Model Transparency',
-            body: `Clustering Silhouette: ${metrics?.clustering?.silhouette_score}. Regression R²: ${metrics?.regression?.r2}. Classification Accuracy: ${metrics?.classification?.accuracy}. All computed from live dataset.`,
         },
         {
             title: 'Overall Sentiment',
@@ -71,14 +67,6 @@ export default function ExecutiveSummaryPage() {
         if (!contentRef.current) return;
         setExporting(true); setExportMsg(null);
         try {
-            // Dynamic import only fires when user clicks — no bundle bloat on load
-            const [html2canvasModule, jsPDFModule] = await Promise.all([
-                import('html2canvas'),
-                import('jspdf'),
-            ]);
-            const html2canvas = html2canvasModule.default;
-            const { jsPDF } = jsPDFModule;
-
             // Hide no-print elements
             const noPrints = document.querySelectorAll('.no-print');
             noPrints.forEach(el => { el.dataset.displayBak = el.style.display; el.style.display = 'none'; });
@@ -155,8 +143,6 @@ export default function ExecutiveSummaryPage() {
                 <OverviewCard label="Est. Revenue" value={`$${(totalRevenue / 1000).toFixed(1)}K`} note="Estimated" />
                 <OverviewCard label="Segments" value="4" />
                 <OverviewCard label="Avg Rating" value={`${avgRating.toFixed(2)} / 5`} />
-                <OverviewCard label="Silhouette Score" value={metrics?.clustering?.silhouette_score || '—'} note="Training" />
-                <OverviewCard label="Train Accuracy" value={metrics?.classification?.accuracy || '—'} note="Subscription model" />
             </div>
 
             {/* 5 Key Insights */}

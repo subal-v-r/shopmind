@@ -13,12 +13,9 @@ const PAYMENTS = ['Credit Card', 'Debit Card', 'PayPal', 'Cash', 'Bank Transfer'
 const SHIPPINGS = ['Free Shipping', 'Express', 'Standard', 'Store Pickup', '2-Day Shipping', 'Next Day Air'];
 
 const DEFAULT = {
-    // Behavioral
     frequency: 'Monthly', subscription: 'No', discount: 'No', promo: 'No',
     prev_purchases: '',
-    // Transactional
     amount: '', rating: '', payment: 'Credit Card', shipping: 'Free Shipping',
-    // Contextual
     age: '', gender: 'Male', category: 'Clothing', season: 'Spring',
 };
 
@@ -33,13 +30,6 @@ function validate(f) {
 
 const SEG_COLORS_ID = { premium: '#4f46e5', loyal: '#059669', occasional: '#d97706', discount: '#dc2626' };
 
-const CHURN_RISK = {
-    'Premium Urgent Buyers': { label: 'Low', badge: 'badge-green' },
-    'Loyal Frequent Buyers': { label: 'Low', badge: 'badge-green' },
-    'Occasional Buyers': { label: 'Medium', badge: 'badge-yellow' },
-    'Discount-Driven Shoppers': { label: 'High', badge: 'badge-red' },
-};
-
 const SEG_STRATEGY = {
     'Premium Urgent Buyers': ['Launch VIP early access program', 'Offer complimentary express shipping', 'Target with premium bundle upsells'],
     'Loyal Frequent Buyers': ['Enroll in loyalty points program', 'Send subscriber-only flash sales (10% off)', 'Run referral incentive campaign'],
@@ -47,9 +37,12 @@ const SEG_STRATEGY = {
     'Discount-Driven Shoppers': ['Run flash sales during peak season', 'Create bulk-buy bundle deals', 'Cap discounts at 25% to protect margins'],
 };
 
-/* ── Safe formatters ─────────────────────────────────────── */
+const CLV_TIER_COLOR = { Platinum: '#7c3aed', Gold: '#d97706', Silver: '#64748b', Bronze: '#92400e' };
+const CLV_TIER_BADGE = { Platinum: 'badge-blue', Gold: 'badge-yellow', Silver: 'badge-gray', Bronze: 'badge-gray' };
+
 function fmt$(v) { const n = safeNum(v); return n === 0 ? '$0.00' : `$${n.toFixed(2)}`; }
 function fmtPct(v) { const n = safeNum(v); return `${n.toFixed(1)}%`; }
+function fmtK(v) { const n = safeNum(v); return n >= 1000 ? `$${(n / 1000).toFixed(1)}K` : fmt$(n); }
 
 export default function AnalyzerPage() {
     const [form, setForm] = useState(DEFAULT);
@@ -70,8 +63,9 @@ export default function AnalyzerPage() {
         setLoading(true); setApiErr(null);
         try {
             const fScore = FREQ_SCORE[form.frequency] || 3;
-            const revPayload = {
+            const payload = {
                 age: +form.age,
+                purchase_amount: +form.amount,
                 previous_purchases: +form.prev_purchases,
                 review_rating: +form.rating,
                 discount_applied: form.discount === 'Yes' ? 1 : 0,
@@ -81,23 +75,11 @@ export default function AnalyzerPage() {
                 category: form.category,
                 season: form.season,
                 gender: form.gender,
-                purchase_amount: +form.amount,
                 payment_method: form.payment,
                 shipping_type: form.shipping,
             };
-            const subPayload = {
-                age: +form.age,
-                purchase_amount: +form.amount,
-                previous_purchases: +form.prev_purchases,
-                review_rating: +form.rating,
-                discount_applied: form.discount === 'Yes' ? 1 : 0,
-                promo_code_used: form.promo === 'Yes' ? 1 : 0,
-                frequency_score: fScore,
-                category: form.category,
-                season: form.season,
-            };
-            const [rev, sub] = await Promise.all([api.predictRevenue(revPayload), api.predictSubscription(subPayload)]);
-            setResult({ rev, sub });
+            const data = await api.analyzeCustomer(payload);
+            setResult(data);
         } catch (err) {
             setApiErr(err.message || 'Analysis failed. Check your inputs and try again.');
         } finally {
@@ -107,24 +89,36 @@ export default function AnalyzerPage() {
 
     const reset = () => { setForm(DEFAULT); setResult(null); setErrors({}); setApiErr(null); };
 
-    /* ── Result derivations ─── */
-    const seg = result?.rev?.segment || '';
-    const segConf = safeNum(result?.rev?.segment_confidence, 0);
-    const segColor = SEG_COLORS_ID[Object.entries(SEG_META).find(([, v]) => v.label === seg)?.[0]] || '#2563eb';
-    const predicted = safeNum(result?.rev?.predicted_revenue, 0);
-    const confLow = safeNum(result?.rev?.confidence_range?.[0], predicted * 0.85);
-    const confHigh = safeNum(result?.rev?.confidence_range?.[1], predicted * 1.15);
-    const subProb = safeNum(result?.sub?.subscription_probability, 0);
-    const churn = CHURN_RISK[seg] || { label: 'Unknown', badge: 'badge-gray' };
-    const featImps = (result?.rev?.feature_importance || []).filter(f => typeof f.importance === 'number' && !isNaN(f.importance));
-    const drivers = result?.sub?.key_drivers || [];
-    const modifiers = result?.rev?.modifiers || null;
+    /* ── Derived values ─────────────────────────────────── */
+    const seg = result?.segment || '';
+    const segConf = safeNum(result?.segment_confidence, 0);
+    const segColor = SEG_COLORS_ID[Object.entries(SEG_META || {}).find(([, v]) => v.label === seg)?.[0]] || '#2563eb';
+
+    const predicted = safeNum(result?.predicted_revenue, 0);
+    const confLow = safeNum(result?.confidence_range?.[0], predicted * 0.85);
+    const confHigh = safeNum(result?.confidence_range?.[1], predicted * 1.15);
+    const subProb = safeNum(result?.subscription_probability, 0);
+    const churnProb = safeNum(result?.churn_probability, 0);
+    const churnRisk = result?.churn_risk || 'Unknown';
+    const clvValue = safeNum(result?.clv_value, 0);
+    const clvTier = result?.clv_tier || 'Bronze';
+    const anomScore = safeNum(result?.anomaly_score, 0);
+    const anomFlag = result?.anomaly_flag || false;
+
+    const featImps = (result?.feature_importance || []).filter(f => typeof f.importance === 'number' && !isNaN(f.importance));
+    const drivers = result?.subscription_drivers || [];
+    const modifiers = result?.modifiers || null;
+    const aiExpl = result?.ai_explanation || null;
+
+    const churnBadge = churnRisk === 'High' ? 'badge-red' : churnRisk === 'Medium' ? 'badge-yellow' : 'badge-green';
+    const tierColor = CLV_TIER_COLOR[clvTier] || '#64748b';
+    const tierBadge = CLV_TIER_BADGE[clvTier] || 'badge-gray';
 
     return (
         <div>
             <div className="page-header">
                 <h1>Customer Analyzer</h1>
-                <p>Centroid-based segment assignment + ML inference across 14 behavioral and transactional attributes</p>
+                <p>Live ML predictions — XGBClassifier (subscription, churn) · XGBRegressor (CLV) · IsolationForest (anomaly) · GenAI insights</p>
             </div>
 
             <div className="az-layout">
@@ -215,6 +209,7 @@ export default function AnalyzerPage() {
                 {/* ── RESULTS ──────────────────────────────────────── */}
                 {result ? (
                     <div className="az-results">
+
                         {/* Segment */}
                         <div className="card az-seg-card" style={{ borderLeft: `3px solid ${segColor}` }}>
                             <div className="az-seg-label">Predicted Segment</div>
@@ -226,14 +221,47 @@ export default function AnalyzerPage() {
                                 </div>
                                 <span className="conf-pct">{(segConf * 100).toFixed(0)}%</span>
                             </div>
-                            <div className="az-seg-explanation">{safeStr(result?.rev?.explanation)}</div>
                         </div>
 
-                        {/* KPIs */}
+                        {/* KPIs Row — Subscription + Churn + CLV */}
                         <div className="az-kpi-row">
-                            <AzKpi label="Predicted Spend" value={fmt$(predicted)} note={`Range: ${fmt$(confLow)} – ${fmt$(confHigh)} (est.)`} color={segColor} />
-                            <AzKpi label="Sub. Probability" value={fmtPct(subProb * 100)} note={result?.sub?.likelihood_label + ' likelihood'} color="#059669" />
-                            <AzKpi label="Churn Risk" value={churn.label} badge={churn.badge} note="Based on segment profile" color={segColor} />
+                            <AzKpi
+                                label="Sub. Probability"
+                                value={fmtPct(subProb * 100)}
+                                note={`${result?.subscription_likelihood || ''} likelihood`}
+                                color="#059669"
+                            />
+                            <AzKpi
+                                label="Churn Risk"
+                                value={churnRisk}
+                                note={`${fmtPct(churnProb * 100)} churn probability`}
+                                color={churnRisk === 'High' ? '#dc2626' : churnRisk === 'Medium' ? '#d97706' : '#059669'}
+                                badge={churnBadge}
+                            />
+                            <AzKpi
+                                label="Lifetime Value"
+                                value={fmtK(clvValue)}
+                                note={`${clvTier} tier`}
+                                color={tierColor}
+                                badge={tierBadge}
+                            />
+                        </div>
+
+                        {/* Anomaly + Predicted Revenue */}
+                        <div className="az-kpi-row">
+                            <AzKpi
+                                label="Predicted Revenue"
+                                value={fmt$(predicted)}
+                                note={`Range: ${fmt$(confLow)} – ${fmt$(confHigh)} (est.)`}
+                                color={segColor}
+                            />
+                            <AzKpi
+                                label="Anomaly Score"
+                                value={`${(anomScore * 100).toFixed(0)}%`}
+                                note={anomFlag ? '⚠️ Flagged as anomaly' : '✓ Normal behavior'}
+                                color={anomFlag ? '#dc2626' : '#059669'}
+                                badge={anomFlag ? 'badge-red' : 'badge-green'}
+                            />
                         </div>
 
                         {/* Confidence Range Visual */}
@@ -249,6 +277,50 @@ export default function AnalyzerPage() {
                             </div>
                             <div className="cr-note">Point estimate: <strong>{fmt$(predicted)}</strong> · 85%–115% of segment baseline</div>
                         </div>
+
+                        {/* GenAI Business Explanation */}
+                        {aiExpl && (
+                            <div className="card az-ai-card">
+                                <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <span>AI Business Insights</span>
+                                    <span className="badge badge-blue">GenAI</span>
+                                </h4>
+                                <div className="az-ai-grid">
+                                    {aiExpl.subscription_insight && (
+                                        <AiInsightBlock
+                                            icon="📬"
+                                            title="Subscription Insight"
+                                            body={aiExpl.subscription_insight}
+                                            color="#059669"
+                                        />
+                                    )}
+                                    {aiExpl.churn_insight && (
+                                        <AiInsightBlock
+                                            icon="⚡"
+                                            title="Churn Risk Insight"
+                                            body={aiExpl.churn_insight}
+                                            color={churnRisk === 'High' ? '#dc2626' : '#d97706'}
+                                        />
+                                    )}
+                                    {aiExpl.clv_insight && (
+                                        <AiInsightBlock
+                                            icon="💎"
+                                            title="Customer Value Insight"
+                                            body={aiExpl.clv_insight}
+                                            color={tierColor}
+                                        />
+                                    )}
+                                    {aiExpl.anomaly_insight && (
+                                        <AiInsightBlock
+                                            icon="🔍"
+                                            title="Behavior Anomaly Insight"
+                                            body={aiExpl.anomaly_insight}
+                                            color={anomFlag ? '#dc2626' : '#6366f1'}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Strategy */}
                         <div className="card">
@@ -289,7 +361,7 @@ export default function AnalyzerPage() {
                                     ))}
                                 </div>
                             ) : (
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Feature importance data not available from model.</p>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem' }}>Feature importance data not available.</p>
                             )}
                         </div>
 
@@ -313,8 +385,8 @@ export default function AnalyzerPage() {
                 ) : !loading && (
                     <div className="card az-empty">
                         <EmptyIcon />
-                        <p>Fill in customer attributes and click <strong>Analyze Customer</strong> to view ML predictions.</p>
-                        <p className="az-empty-note">Uses centroid-based segment assignment and RandomForest models.</p>
+                        <p>Fill in customer attributes and click <strong>Analyze Customer</strong> to view live ML predictions.</p>
+                        <p className="az-empty-note">XGBClassifier · XGBRegressor · IsolationForest · GenAI Insights</p>
                     </div>
                 )}
             </div>
@@ -347,6 +419,17 @@ function AzKpi({ label, value, note, color, badge }) {
             <div className="azk-label">{label}</div>
             {badge && <span className={`badge ${badge}`} style={{ marginBottom: '0.2rem' }}>{value}</span>}
             <div className="azk-note">{note}</div>
+        </div>
+    );
+}
+function AiInsightBlock({ icon, title, body, color }) {
+    return (
+        <div className="az-ai-block" style={{ borderLeft: `3px solid ${color}` }}>
+            <div className="az-ai-block-title">
+                <span>{icon}</span>
+                <strong style={{ color }}>{title}</strong>
+            </div>
+            <p className="az-ai-block-body">{body}</p>
         </div>
     );
 }

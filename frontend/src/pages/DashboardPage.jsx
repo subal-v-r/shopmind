@@ -13,20 +13,18 @@ const PRIORITY = { premium: 1, loyal: 2, occasional: 3, discount: 4 };
 export default function DashboardPage() {
   const [segments, setSegments] = useState(null);
   const [projection, setProjection] = useState(null);
-  const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([api.getSegments(), api.getProjection(), api.getModelMetrics()])
-      .then(([segsData, projData, metricsData]) => {
+    Promise.all([api.getSegments(), api.getProjection()])
+      .then(([segsData, projData]) => {
         const sorted = [...(segsData.segments || [])].sort(
           (a, b) => (PRIORITY[a.id] || 9) - (PRIORITY[b.id] || 9)
         );
         setSegments(sorted);
         setProjection(projData.projections || []);
-        setMetrics(metricsData);
         setError(null);
       })
       .catch(e => setError(e.message))
@@ -166,24 +164,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Model Metrics Mini Card */}
-      {metrics && (
-        <div className="card metrics-card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-            <h3>Model Transparency Metrics</h3>
-            <span className="badge badge-gray" style={{ fontSize: '0.68rem' }}>Training Results</span>
-          </div>
-          <div className="metrics-grid">
-            <MetricItem label="Silhouette Score" value={metrics.clustering?.silhouette_score} note="Clustering quality (train)" />
-            <MetricItem label="Regression R²" value={metrics.regression?.r2} note="Revenue model fit (train)" />
-            <MetricItem label="Regression MAE" value={`$${metrics.regression?.mae_usd}`} note="Mean spend error" />
-            <MetricItem label="Train Accuracy" value={metrics.classification?.accuracy} note="Subscription classifier" />
-            <MetricItem label="ROC-AUC" value={metrics.classification?.roc_auc} note="Validated discrimination" />
-            <MetricItem label="Min Support" value={`${(metrics.association_rules?.min_support * 100 || 20)}%`} note="Assoc. rule threshold" />
-          </div>
-          
-        </div>
-      )}
     </div>
   );
 }
